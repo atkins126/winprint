@@ -63,6 +63,7 @@ type
     SkipEmptyPages: boolean;
     ClipperCompatible: boolean;
     CodePage: TCodePage;
+    UseOwnNLSConversion: boolean; //only to convert when NLS is missing, not saved
     UseCustomConversionTable: boolean;
     ConversionItems: TConversionItems;
     Logo: string;
@@ -451,7 +452,7 @@ begin
   combobox2.Items.Add(RString(163));
   combobox2.ItemIndex:=0;
 
-  Printer.Refresh; //odœwie¿ zainstalowane drukarki
+  Printer.Refresh; //odswiez zainstalowane drukarki
   if Printer.Printers.Count>0 then
     for i:=0 to Printer.Printers.Count - 1 do
       combobox2.Items.Add(printer.Printers.Strings[i]);
@@ -540,6 +541,7 @@ var
   OldInputFilesDir: string;
   OldInputFilesMask: string;
   HandleToFile: THandle;
+  CPstring:string;
 begin
   with ConfigData do
   begin
@@ -590,7 +592,10 @@ begin
         StringToSet(ReadString(section,'EOPCodes',SetToString(TypeInfo(TCharCodes),EOPCodes)),TypeInfo(TCharCodes),EOPCodes);
         SkipEmptyPages:=ReadBool(section,'SkipEmptyPages',DEFAULT_SKIP_EMPTY_PAGES);
         ClipperCompatible:=ReadBool(section,'ClipperCompatible',DEFAULT_CLIPPER_COMPATIBLE);
-        CodePage:=TCodePage(StringToOrd(TypeInfo(TCodePage),ReadString(section,'CodePage',OrdToString(TypeInfo(TCodePage),ord(DEFAULT_CODE_PAGE)))));
+        CPstring:=ReadString(section,'CodePage',OrdToString(TypeInfo(TCodePage),ord(DEFAULT_CODE_PAGE)));
+        if CPstring='cp790' then CPstring:='cp667' //Mazovia aliases
+        else if CPstring='cp991' then CPstring:='cp620';
+        CodePage:=TCodePage(StringToOrd(TypeInfo(TCodePage),CPstring));
         if not (CodePage in [CodePageLow..CodePageHigh]) then CodePage:=DEFAULT_CODE_PAGE;
         UseCustomConversionTable:=ReadBool(section,'UseCustomConversionTable',DEFAULT_USE_CUSTOM_CONVERSION_TABLE);
         try
@@ -766,7 +771,10 @@ begin
               ClipperCompatible:=DEFAULT_CLIPPER_COMPATIBLE;
             end;
             try
-              CodePage:=TCodePage(StringToOrd(TypeInfo(TCodePage),ReadString('CodePage')));
+              CPstring:=ReadString('CodePage');
+              if CPstring='cp790' then CPstring:='cp667' //Mazovia aliases
+              else if CPstring='cp991' then CPstring:='cp620';
+              CodePage:=TCodePage(StringToOrd(TypeInfo(TCodePage),CPstring));
               if not (CodePage in [CodePageLow..CodePageHigh]) then CodePage:=DEFAULT_CODE_PAGE;
             except
               CodePage:=DEFAULT_CODE_PAGE;
@@ -990,7 +998,7 @@ begin
                 HandleToFile:=CreateFile(PChar(InputFilesDir+InputFilesMask+'spl.tmp'), GENERIC_WRITE, 0, NIL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0);
                 if HandleToFile = INVALID_HANDLE_VALUE then
                 begin
-                    //krytyczny b³¹d podczas tworzenia pliku spoolera - zakoñcz aplikacje
+                    //krytyczny blad podczas tworzenia pliku spoolera - zakoncz aplikacje
                     raise EInOutError.Create(RString(507)); 
                 end
                 else CloseHandle(HandleToFile);
@@ -1007,6 +1015,12 @@ begin
     SetPriorityClass(GetCurrentProcess,PriorityClassValues[Priority]);
     Button3.Enabled:=false; //Klawisz Zastosuj
   end;
+//---------------------------------------------------------------------
+  if MultiByteToWideCharMy(CodePageInfo[ConfigForm.ConfigData.CodePage].CpNr,0,'A',1,nil,0)>0 then
+    ConfigData.UseOwnNLSConversion := false
+  else if CodePageInfo[ConfigForm.ConfigData.CodePage].utf8<>nil then
+    ConfigData.UseOwnNLSConversion := true
+  else ConfigData.UseOwnNLSConversion := false;
 end;
 
 procedure TConfigForm.WriteConfig;
@@ -1131,7 +1145,7 @@ begin
    if Button3.Enabled=true then ReadConfig;
 end;
 
-//Klawisz jêzyka
+//Klawisz jezyka
 procedure TConfigForm.Button11Click(Sender: TObject);
 begin
   if LANG=60000 then LANG:=61000
@@ -1146,7 +1160,7 @@ procedure TConfigForm.Button1Click(Sender: TObject);
 begin
   if Button3.Enabled=true then begin
     WriteConfig;
-//    ReadConfig;
+//    ReadConfig; executed in TConfigForm.FormClose 
   end;  
   Close;
 end;
@@ -1165,7 +1179,7 @@ begin
   ReadConfig;
 end;
 
-//Klawisz Wybierz czcionkê
+//Klawisz Wybierz czcionke
 procedure TConfigForm.Button4Click(Sender: TObject);
 begin
   with MainForm do
@@ -1188,7 +1202,7 @@ begin
   end;
 end;
 
-//Karta Opcje u¿ytkowe - Klawisz domyœlne
+//Karta Opcje uzytkowe - Klawisz domyslne
 procedure TConfigForm.Button5Click(Sender: TObject);
 begin
   Edit1.Text:=DEFAULT_INPUT_FILES_DIR;
@@ -1202,7 +1216,7 @@ begin
   ConfigChanged(Sender);
 end;
 
-//Karta Ustawienia strony - Klawisz domyœlne
+//Karta Ustawienia strony - Klawisz domyslne
 procedure TConfigForm.Button6Click(Sender: TObject);
 begin
   Memo1.Font.Name:=DEFAULT_FONT_NAME;
@@ -1228,7 +1242,7 @@ begin
   ConfigChanged(Sender);
 end;
 
-//Karta Format danych - Klawisz domyœlne
+//Karta Format danych - Klawisz domyslne
 procedure TConfigForm.Button7Click(Sender: TObject);
 var
   TempSet: TCharCodes;
@@ -1242,7 +1256,7 @@ begin
   ConfigChanged(Sender);
 end;
 
-//Karta Inne - Klawisz domyœlne
+//Karta Inne - Klawisz domyslne
 procedure TConfigForm.Button10Click(Sender: TObject);
 begin
   Edit8.Text:=DEFAULT_LOGO;
@@ -1263,7 +1277,7 @@ begin
   ConfigChanged(Sender);
 end;
 
-//Zmiana Iloœci linii na cal
+//Zmiana Ilosci linii na cal
 procedure TConfigForm.FloatEdit5Change(Sender: TObject);
 begin
   if IgnoreOnChange then exit;
@@ -1278,7 +1292,7 @@ begin
   end;
 end;
 
-//Zmiana Iloœci linii na stronê
+//Zmiana Ilosci linii na strone
 procedure TConfigForm.IntEdit1Change(Sender: TObject);
 begin
   if IgnoreOnChange then exit;
@@ -1301,7 +1315,7 @@ begin
   IntEdit1.Value:=DEFAULT_LINES_PER_PAGE;
 end;
 
-//w³¹cz formatowanie
+//wlacz formatowanie
 procedure TConfigForm.CheckBox2Click(Sender: TObject);
 begin
   if CheckBox2.Checked then
@@ -1317,7 +1331,7 @@ begin
   ConfigChanged(Sender);
 end;
 
-//w³¹cz dodatkowe przekodowywanie
+//wlacz dodatkowe przekodowywanie
 procedure TConfigForm.CheckBox4Click(Sender: TObject);
 begin
   if CheckBox4.Checked then
@@ -1357,7 +1371,7 @@ begin
   ConfigChanged(Sender);
 end;
 
-//Dodaj pozycjê dodatkowego przekodowania
+//Dodaj pozycje dodatkowego przekodowania
 procedure TConfigForm.SpeedButton2Click(Sender: TObject);
 var
   TempItem: TConversionItem;
@@ -1377,7 +1391,7 @@ begin
   ConfigChanged(Sender);
 end;
 
-//Usuñ pozycjê dodatkowego przekodowania
+//Usun pozycje dodatkowego przekodowania
 procedure TConfigForm.SpeedButton3Click(Sender: TObject);
 begin
   with ListBox1 do
@@ -1437,7 +1451,7 @@ begin
     Application.CancelHint;
 end;
 
-//Zapisz tabelê konwersji
+//Zapisz tabele konwersji
 procedure TConfigForm.Button8Click(Sender: TObject);
 var
   FileStream: TFileStream;
@@ -1454,7 +1468,7 @@ begin
   end;
 end;
 
-//Wczytaj tabelê konwersji
+//Wczytaj tabele konwersji
 procedure TConfigForm.Button9Click(Sender: TObject);
 var
   FileStream: TFileStream;

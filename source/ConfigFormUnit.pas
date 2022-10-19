@@ -63,7 +63,6 @@ type
     SkipEmptyPages: boolean;
     ClipperCompatible: boolean;
     CodePage: TCodePage;
-    UseOwnNLSConversion: boolean; //only to convert when NLS is missing, not saved
     UseCustomConversionTable: boolean;
     ConversionItems: TConversionItems;
     Logo: string;
@@ -238,7 +237,7 @@ const
   DEFAULT_AUTO_START = false;
   DEFAULT_FONT_NAME = 'Courier New';
   DEFAULT_FONT_SIZE = 12;
-  DEFAULT_FONT_CHARSET = 238; //Easter Europe
+  DEFAULT_FONT_CHARSET = 238; //EASTEUROPE_CHARSET
   DEFAULT_FONT_STYLES = [];
   DEFAULT_MARGIN_LEFT = 12.7;
   DEFAULT_MARGIN_RIGHT = 12.7;
@@ -272,7 +271,10 @@ const
          REALTIME_PRIORITY_CLASS);
 var
   PriorityClassNames: array[MinPriorityClass..MaxPriorityClass] of string;
-
+  RegistryCP: TRegistry;
+  StringCP: string;
+  OEMCPCodePage: TCodePage;
+  OEMCPFontCharset: integer;
 
 procedure SaveCollectionToStream(Collection: TCollection; Stream: TStream);
 begin
@@ -490,7 +492,7 @@ begin
            FS:=FileSize(TempFile);
            CloseFile(TempFile);
            if FS=0 then DeleteFile(ConfigData.InputFilesDir+ConfigData.InputFilesMask+'spl.tmp');
-        except;
+        except
         end;
   end;
 end;
@@ -541,7 +543,8 @@ var
   OldInputFilesDir: string;
   OldInputFilesMask: string;
   HandleToFile: THandle;
-  CPstring:string;
+  CPinteger: Integer;
+  CPstring: string;
 begin
   with ConfigData do
   begin
@@ -572,7 +575,7 @@ begin
         if (FontName='') then FontName:=DEFAULT_FONT_NAME;
         FontSize:=ReadInteger(section,'FontSize',DEFAULT_FONT_SIZE);
         if (FontSize<=0) then FontSize:=DEFAULT_FONT_SIZE;
-        FontCharset:=ReadInteger(section,'FontCharset',DEFAULT_FONT_CHARSET);
+        FontCharset:=ReadInteger(section,'FontCharset',OEMCPFontCharset);
         FontStyles:=DEFAULT_FONT_STYLES;
         StringToSet(ReadString(section,'FontStyles',SetToString(TypeInfo(TFontStyles),FontStyles)),TypeInfo(TFontStyles),FontStyles);
         MarginLeft:=ReadFloat(section,'MarginLeft',DEFAULT_MARGIN_LEFT);
@@ -592,11 +595,17 @@ begin
         StringToSet(ReadString(section,'EOPCodes',SetToString(TypeInfo(TCharCodes),EOPCodes)),TypeInfo(TCharCodes),EOPCodes);
         SkipEmptyPages:=ReadBool(section,'SkipEmptyPages',DEFAULT_SKIP_EMPTY_PAGES);
         ClipperCompatible:=ReadBool(section,'ClipperCompatible',DEFAULT_CLIPPER_COMPATIBLE);
-        CPstring:=ReadString(section,'CodePage',OrdToString(TypeInfo(TCodePage),ord(DEFAULT_CODE_PAGE)));
+        CPInteger:=ReadInteger(section,'CodePage',-1);
+        if CPInteger>=0 then //new syntax CodePage=NR
+            CPstring:='cp'+IntToStr(CPInteger)
+        else begin//old synstax CodePage=cpNR
+            CPstring:=ReadString(section,'CodePage',OrdToString(TypeInfo(TCodePage),ord(OEMCPCodePage)));
+            if CPstring='' then CPstring:=OrdToString(TypeInfo(TCodePage),ord(OEMCPCodePage));
+        end;
         if CPstring='cp790' then CPstring:='cp667' //Mazovia aliases
         else if CPstring='cp991' then CPstring:='cp620';
         CodePage:=TCodePage(StringToOrd(TypeInfo(TCodePage),CPstring));
-        if not (CodePage in [CodePageLow..CodePageHigh]) then CodePage:=DEFAULT_CODE_PAGE;
+        if not (CodePage in [CodePageLow..CodePageHigh]) then CodePage:=OEMCPCodePage;
         UseCustomConversionTable:=ReadBool(section,'UseCustomConversionTable',DEFAULT_USE_CUSTOM_CONVERSION_TABLE);
         try
           MemStream:=TMemoryStream.Create;
@@ -634,7 +643,7 @@ begin
     else
     begin
       //backward compatibility for older version with registry-based config
-      Registry:=TRegistry.Create;
+      Registry:=TRegistry.Create(KEY_READ);
       with Registry do
       try
         RootKey:=HKEY_LOCAL_MACHINE;
@@ -703,7 +712,7 @@ begin
             try
               FontCharset:=ReadInteger('FontCharset');
             except
-              FontCharset:=DEFAULT_FONT_CHARSET;
+              FontCharset:=OEMCPFontCharset;
             end;
             try
               StringToSet(ReadString('FontStyles'),TypeInfo(TFontStyles),FontStyles);
@@ -772,12 +781,13 @@ begin
             end;
             try
               CPstring:=ReadString('CodePage');
-              if CPstring='cp790' then CPstring:='cp667' //Mazovia aliases
+              if CPstring='' then CPstring:=OrdToString(TypeInfo(TCodePage),ord(OEMCPCodePage))
+              else if CPstring='cp790' then CPstring:='cp667' //Mazovia aliases
               else if CPstring='cp991' then CPstring:='cp620';
               CodePage:=TCodePage(StringToOrd(TypeInfo(TCodePage),CPstring));
-              if not (CodePage in [CodePageLow..CodePageHigh]) then CodePage:=DEFAULT_CODE_PAGE;
+              if not (CodePage in [CodePageLow..CodePageHigh]) then CodePage:=OEMCPCodePage;
             except
-              CodePage:=DEFAULT_CODE_PAGE;
+              CodePage:=OEMCPCodePage;
             end;
             try
               UseCustomConversionTable:=ReadBool('UseCustomConversionTable');
@@ -839,7 +849,7 @@ begin
             AutoStart:=DEFAULT_AUTO_START;
             FontName:=DEFAULT_FONT_NAME;
             FontSize:=DEFAULT_FONT_SIZE;
-            FontCharset:=DEFAULT_FONT_CHARSET;
+            FontCharset:=OEMCPFontCharset;
             FontStyles:=DEFAULT_FONT_STYLES;
             MarginLeft:=DEFAULT_MARGIN_LEFT;
             MarginRight:=DEFAULT_MARGIN_RIGHT;
@@ -852,7 +862,7 @@ begin
             EOPCodes:=DEFAULT_EOP_CODES;
             SkipEmptyPages:=DEFAULT_SKIP_EMPTY_PAGES;
             ClipperCompatible:=DEFAULT_CLIPPER_COMPATIBLE;
-            CodePage:=DEFAULT_CODE_PAGE;
+            CodePage:=OEMCPCodePage;
             UseCustomConversionTable:=DEFAULT_USE_CUSTOM_CONVERSION_TABLE;
             Logo:=DEFAULT_LOGO;
             LogoLeft:=DEFAULT_LOGO_LEFT;
@@ -986,7 +996,7 @@ begin
                    FS:=FileSize(TempFile);
                    CloseFile(TempFile);
                    if FS=0 then DeleteFile(OldInputFilesDir+OldInputFilesMask+'spl.tmp');
-                except;
+                except
                 end;
         end;
         nazwa:=UpperCase(InputFilesMask);
@@ -1015,12 +1025,6 @@ begin
     SetPriorityClass(GetCurrentProcess,PriorityClassValues[Priority]);
     Button3.Enabled:=false; //Klawisz Zastosuj
   end;
-//---------------------------------------------------------------------
-  if MultiByteToWideCharMy(CodePageInfo[ConfigForm.ConfigData.CodePage].CpNr,0,'A',1,nil,0)>0 then
-    ConfigData.UseOwnNLSConversion := false
-  else if CodePageInfo[ConfigForm.ConfigData.CodePage].utf8<>nil then
-    ConfigData.UseOwnNLSConversion := true
-  else ConfigData.UseOwnNLSConversion := false;
 end;
 
 procedure TConfigForm.WriteConfig;
@@ -1059,7 +1063,7 @@ begin
     StringToSet(Edit4.Text,TypeInfo(TCharCodes),TempSet); WriteString(section,'EOPCodes',SetToString(TypeInfo(TCharCodes),TempSet));
     WriteBool(section,'SkipEmptyPages',CheckBox3.Checked);
     WriteBool(section,'ClipperCompatible',CheckBox5.Checked);
-    WriteString(section,'CodePage',OrdToString(TypeInfo(TCodePage),ComboBox1.ItemIndex));
+    WriteString(section,'CodePage',IntToStr(CodePageInfo[TCodePage(ComboBox1.ItemIndex)].CpNr));
     WriteBool(section,'UseCustomConversionTable',CheckBox4.Checked);
     ConfigData.ConversionItems.Assign(TempConversionItems);
     MemStream:=TMemoryStream.Create;
@@ -1221,7 +1225,7 @@ procedure TConfigForm.Button6Click(Sender: TObject);
 begin
   Memo1.Font.Name:=DEFAULT_FONT_NAME;
   Memo1.Font.Size:=DEFAULT_FONT_SIZE;
-  Memo1.Font.Charset:=DEFAULT_FONT_CHARSET;
+  Memo1.Font.Charset:=OEMCPFontCharset;
   if Memo1.Font.Charset=238 then begin //East Europe
                                    Memo1.Lines.Strings[0]:=RString(50000);
                                    Memo1.Lines.Strings[1]:=RString(50001);
@@ -1251,7 +1255,7 @@ begin
   Edit4.Text:=SetToString(TypeInfo(TCharCodes),TempSet,',','','');
   CheckBox3.Checked:=DEFAULT_SKIP_EMPTY_PAGES;
   CheckBox5.Checked:=DEFAULT_CLIPPER_COMPATIBLE;
-  ComboBox1.ItemIndex:=ord(DEFAULT_CODE_PAGE);
+  ComboBox1.ItemIndex:=ord(OEMCPCodePage);
   CheckBox4.Checked:=DEFAULT_USE_CUSTOM_CONVERSION_TABLE;
   ConfigChanged(Sender);
 end;
@@ -1598,5 +1602,38 @@ begin
 
 end;
 
+begin
+   OEMCPCodePage:=DEFAULT_CODE_PAGE;
+   OEMCPFontCharset:=DEFAULT_FONT_CHARSET;
+   RegistryCP:=TRegistry.Create(KEY_READ);
+   with RegistryCP do
+   try
+      RootKey:=HKEY_LOCAL_MACHINE;
+      try
+         if OpenKey('SYSTEM\CurrentControlSet\Control\Nls\CodePage',false) then
+         try
+            StringCP:=ReadString('OEMCP');
+            OEMCPCodePage:=TCodePage(StringToOrd(TypeInfo(TCodePage),'cp'+StringCP));
+            if not (OEMCPCodePage in [CodePageLow..CodePageHigh]) then OEMCPCodePage:=DEFAULT_CODE_PAGE
+            else if StringCP='720' then OEMCPFontCharset:=178 //ARABIC_CHARSET
+            else if StringCP='737' then OEMCPFontCharset:=161 //GREEK_CHARSET
+            else if StringCP='775' then OEMCPFontCharset:=186 //BALTIC_CHARSET
+            else if StringCP='852' then OEMCPFontCharset:=238 //EASTEUROPE_CHARSET
+            else if StringCP='855' then OEMCPFontCharset:=204 //RUSSIAN_CHARSET
+            else if StringCP='857' then OEMCPFontCharset:=162 //TURKISH_CHARSET
+            else if StringCP='862' then OEMCPFontCharset:=177 //HEBREW_CHARSET
+            else if StringCP='866' then OEMCPFontCharset:=204 //RUSSIAN_CHARSET
+            else if StringCP='869' then OEMCPFontCharset:=161 //GREEK_CHARSET
+            else if StringCP='874' then OEMCPFontCharset:=222 //THAI_CHARSET
+            else if StringCP='1258' then OEMCPFontCharset:=163 //VIETNAMESE_CHARSET
+            else OEMCPFontCharset:=0;
+         except
+         end;
+      finally
+         CloseKey;
+      end;
+   finally
+     RegistryCP.Free;
+   end;
 end.
 
